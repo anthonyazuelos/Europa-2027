@@ -15,11 +15,11 @@ npm run dev
 
 Abra o endereço que aparecer no terminal (normalmente http://localhost:5173).
 
-O app funciona sem configuração nenhuma. Sem token ele usa a imagem de satélite da Esri, sem relevo e sem prédios 3D. Para a experiência completa, crie o token abaixo.
+O app funciona sem configuração nenhuma. Sem token ele usa a imagem de satélite da Esri, sem relevo e sem cidades em 3D. Para a experiência completa, crie o token abaixo.
 
 ## Token gratuito do Cesium ion
 
-O token libera a imagem do Bing com rótulos, o relevo (Alpes e Pirineus em 3D) e os prédios 3D nas cidades.
+O token libera a imagem do Bing com rótulos, o relevo (Alpes e Pirineus em 3D) e, com a flag abaixo, as cidades em 3D.
 
 1. Crie uma conta gratuita em https://ion.cesium.com/signup.
 2. Vá em **Access Tokens** (https://ion.cesium.com/tokens) e clique em **Create token**.
@@ -42,9 +42,14 @@ O token vai dentro do JavaScript do site, então qualquer pessoa consegue vê-lo
 3. Adicione também `http://localhost:5173` se quiser continuar testando no computador com o mesmo token (ou crie um segundo token só para desenvolvimento).
 4. Salve.
 
-### Fotorrealismo do Google (opcional)
+### Cidades em 3D (fotogrametria do Google)
 
-Com `VITE_ENABLE_PHOTOREALISTIC=true` no `.env`, o nível "Local" usa os Photorealistic 3D Tiles do Google via Cesium ion. Isso consome a cota da conta. Se falhar ou a cota acabar, o app volta sozinho para terreno + prédios OSM.
+Nos zooms de cidade e de local o mapa troca a imagem de satélite pelos **Photorealistic 3D Tiles do Google**, servidos pelo Cesium ion: prédios, árvores e monumentos com textura real. Para isso:
+
+1. Na conta do ion, em **Asset Depot**, adicione "Google Photorealistic 3D Tiles" a **My Assets** (uma vez só).
+2. No `.env`, deixe `VITE_ENABLE_PHOTOREALISTIC=true`.
+
+É um asset do Google: o uso é medido pelo ion e pode ter cota ou cobrança conforme o plano. Se o asset não estiver na conta, a cota acabar ou a rede falhar, o app volta sozinho para terreno + satélite. Sem a flag, as cidades ficam só com relevo e imagem de satélite.
 
 ## Publicar em 2 minutos
 
@@ -128,4 +133,4 @@ public/geo/             fronteiras do Natural Earth (arquivo local)
 
 ## Créditos
 
-Imagem de satélite: Bing Maps via Cesium ion, ou Esri World Imagery. Relevo: Cesium World Terrain. Prédios: OpenStreetMap via Cesium OSM Buildings. Fronteiras: Natural Earth. Fotos: Wikimedia Commons, com autor e licença em cada imagem.
+Imagem de satélite: Bing Maps via Cesium ion, ou Esri World Imagery. Relevo: Cesium World Terrain. Cidades em 3D: Google Photorealistic 3D Tiles via Cesium ion. Fronteiras: Natural Earth. Fotos: Wikimedia Commons, com autor e licença em cada imagem.

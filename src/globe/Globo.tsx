@@ -44,7 +44,7 @@ export function Globo() {
           aoVoar: (duracao) => useApp.setState({ voo: duracao }),
           aoReduzirQualidade: (camadas) => {
             useApp.setState({ camadas });
-            useApp.getState().avisar("Prédios 3D desligados para manter o mapa fluido");
+            useApp.getState().avisar("Cidades em 3D desligadas para manter o mapa fluido");
           },
         };
         m.camadas = { ...useApp.getState().camadas };

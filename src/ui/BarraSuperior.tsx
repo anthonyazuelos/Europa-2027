@@ -117,8 +117,8 @@ function Camadas() {
               aoMudar={(v) => definir({ ...camadas, relevo: v })}
             />
             <Interruptor
-              rotulo="Prédios 3D"
-              nota={cap?.predios ? "Nos zooms de cidade e de local" : "Precisa do token do Cesium ion"}
+              rotulo="Cidades em 3D"
+              nota={cap?.predios ? "Fotogrametria do Google nos zooms de cidade e de local" : "Precisa do token do Cesium ion com o asset do Google"}
               ligado={camadas.predios}
               desativado={!cap?.predios}
               aoMudar={(v) => definir({ ...camadas, predios: v })}
@@ -126,7 +126,7 @@ function Camadas() {
             <Interruptor rotulo="Dia e noite" nota="Luz de um fim de tarde de janeiro" ligado={camadas.luz} aoMudar={(v) => definir({ ...camadas, luz: v })} />
             {semToken && (
               <p className="mx-3 mb-2 mt-1 border-t border-linha pt-2 text-xs leading-relaxed text-bruma">
-                Sem token do Cesium ion: o mapa usa a imagem de satélite da Esri. O README explica como ativar relevo e prédios.
+                Sem token do Cesium ion: o mapa usa a imagem de satélite da Esri. O README explica como ativar relevo e cidades em 3D.
               </p>
             )}
           </motion.div>

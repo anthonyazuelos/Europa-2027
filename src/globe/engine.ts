@@ -20,15 +20,12 @@ import {
   Cartesian3,
   Cartesian4,
   Cartographic,
-  Cesium3DTileStyle,
   type Cesium3DTileset,
   ClassificationType,
   Color,
   ColorGeometryInstanceAttribute,
   createGooglePhotorealistic3DTileset,
-  createOsmBuildingsAsync,
   createWorldTerrainAsync,
-  CustomShader,
   Ellipsoid,
   EllipsoidalOccluder,
   EllipsoidGeodesic,
@@ -65,7 +62,6 @@ import {
   type TerrainProvider,
   TileMapServiceImageryProvider,
   Transforms,
-  UniformType,
   UrlTemplateImageryProvider,
   buildModuleUrl,
   Viewer,
@@ -114,6 +110,7 @@ export interface AlvoCamera {
 export interface Camadas {
   rotulos: boolean;
   relevo: boolean;
+  /** Cidades em 3D (fotogrametria do Google). */
   predios: boolean;
   luz: boolean;
 }
@@ -259,10 +256,6 @@ export class GlobeEngine {
   private escuroAlvo = 0.46;
   private relevoIon?: TerrainProvider;
   private readonly elipsoide = new EllipsoidTerrainProvider();
-  private predios?: Cesium3DTileset;
-  private shaderPredios?: CustomShader;
-  private presencaPredios = 0;
-  private prediosPedidos = false;
   private foto?: Cesium3DTileset;
   private fotoEstado: "nao" | "carregando" | "ok" | "falhou" = "nao";
   private falhasFoto = 0;
@@ -307,7 +300,8 @@ export class GlobeEngine {
   private pausado = false;
   private ultimoTick = performance.now();
   private sseBase = 2;
-  private ssePredios = 16;
+  private sseFoto = 16;
+  private fotoVisivel = false;
 
   // ponteiro
   private ponteiro: { x: number; y: number } | null = null;
@@ -430,8 +424,8 @@ export class GlobeEngine {
     // e segue, em vez de congelar o globo.
     scene.renderError.addEventListener((_cena: Scene, erro: unknown) => {
       console.error("Erro de renderização; desligando camadas 3D opcionais.", erro);
-      if (this.predios) this.predios.show = false;
       if (this.foto) this.foto.show = false;
+      this.fotoVisivel = false;
       this.capacidades.predios = false;
       this.fotoEstado = "falhou";
       scene.globe.show = true;
@@ -453,9 +447,9 @@ export class GlobeEngine {
       for (const cb of this.quadros) cb();
     });
     this.aplicarCena();
-    // O conjunto de prédios é preparado com folga, escondido: a primeira
-    // entrada numa cidade não paga a inicialização.
-    setTimeout(() => void this.montarPredios(), 2500);
+    // A fotogrametria é preparada com folga, escondida: a primeira entrada
+    // numa cidade não paga a inicialização.
+    setTimeout(() => void this.montarFoto(), 2500);
   }
 
   /* -------------------------------------------------------------- imagem */
@@ -516,70 +510,44 @@ export class GlobeEngine {
     try {
       this.relevoIon = await createWorldTerrainAsync({ requestVertexNormals: true });
       this.capacidades.relevo = true;
-      this.capacidades.predios = true;
+      // Cidades em 3D = fotogrametria do Google via Cesium ion (precisa da flag e do asset na conta).
       this.capacidades.fotorrealista = import.meta.env.VITE_ENABLE_PHOTOREALISTIC === "true";
+      this.capacidades.predios = this.capacidades.fotorrealista;
       if (this.camadas.relevo) this.viewer.terrainProvider = this.relevoIon;
     } catch (e) {
       console.warn("Relevo do Cesium ion indisponível; seguindo sem relevo.", e);
     }
   }
 
-  private async montarPredios() {
-    if (this.prediosPedidos || !this.capacidades.predios || this.destruido) return;
-    this.prediosPedidos = true;
-    try {
-      // A cor vem do estilo (uma só para todos, sem as cores por prédio do OSM).
-      const predios = await createOsmBuildingsAsync({ style: new Cesium3DTileStyle({ color: "color('#e4ded2')" }) });
-      if (this.destruido) return;
-      // Entram dissolvendo (pontilhado que se fecha), sem "pop" e sem custo de transparência.
-      this.shaderPredios = new CustomShader({
-        uniforms: { u_presenca: { type: UniformType.FLOAT, value: 0 } },
-        fragmentShaderText: `
-          void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
-            material.emissive = vec3(0.07, 0.065, 0.06);
-            float ruido = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-            if (ruido > u_presenca) {
-              discard;
-            }
-          }`,
-      });
-      predios.customShader = this.shaderPredios;
-      predios.show = false;
-      this.ssePredios = CELULAR ? 32 : this.modesta ? 24 : 16;
-      predios.maximumScreenSpaceError = this.ssePredios;
-      predios.skipLevelOfDetail = true;
-      predios.dynamicScreenSpaceError = true;
-      predios.preloadFlightDestinations = true;
-      predios.cullRequestsWhileMoving = true;
-      this.predios = this.scene.primitives.add(predios) as Cesium3DTileset;
-      this.pedirQuadro();
-    } catch (e) {
-      console.warn("Prédios 3D indisponíveis.", e);
-      this.capacidades.predios = false;
-    }
-  }
-
   private async montarFoto() {
-    if (this.fotoEstado !== "nao" || !this.capacidades.fotorrealista) return;
+    if (this.fotoEstado !== "nao" || !this.capacidades.fotorrealista || this.destruido) return;
     this.fotoEstado = "carregando";
     try {
       const foto = await createGooglePhotorealistic3DTileset();
       if (this.destruido) return;
       foto.show = false;
+      // Fotogrametria pesa: GPUs modestas pedem menos detalhe (textura ainda nítida à distância do roteiro).
+      this.sseFoto = CELULAR ? 28 : this.modesta ? 24 : 16;
+      foto.maximumScreenSpaceError = this.sseFoto;
+      foto.dynamicScreenSpaceError = true;
+      foto.preloadFlightDestinations = true;
+      foto.cullRequestsWhileMoving = true;
       foto.tileFailed.addEventListener(() => {
-        // Cota estourada ou rede ruim: volta para terreno + prédios.
+        // Cota estourada ou rede ruim: volta para terreno + imagem de satélite.
         if (++this.falhasFoto > 12 && this.fotoEstado === "ok") {
-          console.warn("Photorealistic 3D Tiles falhando; voltando para os prédios OSM.");
+          console.warn("Photorealistic 3D Tiles falhando; voltando para o terreno.");
           this.fotoEstado = "falhou";
-          this.aplicarVisibilidade3D();
+          this.capacidades.predios = false;
+          this.atualizarFoto();
         }
       });
       this.foto = this.scene.primitives.add(foto) as Cesium3DTileset;
       this.fotoEstado = "ok";
-      this.aplicarVisibilidade3D();
+      this.pedirQuadro();
     } catch (e) {
-      console.warn("Photorealistic 3D Tiles indisponível; usando os prédios OSM.", e);
+      console.warn("Photorealistic 3D Tiles indisponível (o asset do Google precisa estar na conta do ion).", e);
       this.fotoEstado = "falhou";
+      this.capacidades.predios = false;
     }
   }
 
@@ -587,16 +555,32 @@ export class GlobeEngine {
     return this.cena.nivel === "cidade" || this.cena.nivel === "local";
   }
 
-  private get fotoAtiva() {
-    return this.cena.nivel === "local" && this.fotoEstado === "ok" && this.camadas.predios && this.degrau < 3;
+  /**
+   * Fotogrametria do Google nos níveis Cidade e Local. A troca entre o globo
+   * (imagem de satélite + relevo) e o modelo 3D acontece por altitude, com
+   * histerese, abaixo de ~35 km: nessa altura a diferença entre as duas
+   * imagens quase não se nota, e o 3D já está carregando quando a câmera
+   * pousa. O globo some porque os dois têm o chão no mesmo lugar.
+   */
+  private atualizarFoto() {
+    const quer = this.perto && this.camadas.predios && this.fotoEstado === "ok" && this.foto;
+    const altitude = this.camera.positionCartographic.height;
+    let visivel = this.fotoVisivel;
+    if (!quer) visivel = false;
+    else if (altitude < 32_000) visivel = true;
+    else if (altitude > 48_000) visivel = false;
+    if (visivel === this.fotoVisivel && this.scene.globe.show === !visivel) return;
+    this.fotoVisivel = visivel;
+    if (this.foto) this.foto.show = visivel;
+    this.scene.globe.show = !visivel;
+    this.pedirQuadro();
   }
 
-  /** Liga/desliga fotorrealismo e rótulos conforme o nível e as camadas. */
+  /** Rótulos da Esri conforme o nível (sem token). */
   private aplicarVisibilidade3D() {
-    if (this.foto) this.foto.show = this.fotoAtiva;
-    this.scene.globe.show = !this.fotoAtiva;
     // Os rótulos da Esri só vão até o zoom regional: de perto viram borrão.
     if (this.camadaRotulos) this.camadaRotulos.show = this.camadas.rotulos && !this.perto;
+    this.atualizarFoto();
     this.pedirQuadro();
   }
 
@@ -609,7 +593,7 @@ export class GlobeEngine {
       this.reposicionarLinhas();
     }
     if (novas.luz !== antes.luz) this.aplicarLuz(true);
-    if (novas.predios && this.perto) void this.montarPredios();
+    if (novas.predios) void this.montarFoto();
     this.aplicarVisibilidade3D();
   }
 
@@ -1162,7 +1146,7 @@ export class GlobeEngine {
           width: 2.5,
           material: new PolylineDashMaterialProperty({ color: Color.WHITE.withAlpha(0.75), dashLength: 10 }),
           clampToGround: true,
-          classificationType: ClassificationType.TERRAIN,
+          classificationType: ClassificationType.BOTH,
         },
       });
     }
@@ -1250,6 +1234,7 @@ export class GlobeEngine {
     // e os morros esconderem o que está atrás.
     const testar = this.capacidades.relevo && altitude < 60_000;
     if (this.scene.globe.depthTestAgainstTerrain !== testar) this.scene.globe.depthTestAgainstTerrain = testar;
+    this.atualizarFoto();
   }
 
   /* ----------------------------------------------------------------- cena */
@@ -1260,27 +1245,11 @@ export class GlobeEngine {
   }
 
   private aplicarCena() {
-    if (this.cena.nivel === "local" && this.camadas.predios) void this.montarFoto();
-    if (this.perto && this.camadas.predios) void this.montarPredios();
+    if (this.perto && this.camadas.predios) void this.montarFoto();
     this.aplicarVisibilidade3D();
     this.aplicarPaises();
     this.aplicarRota();
     if (this.camadas.luz && this.nivelDaLuz !== this.perto) this.aplicarLuz(false);
-  }
-
-  /** Prédios entram e saem dissolvendo. */
-  private animarPredios(dt: number): boolean {
-    if (!this.predios || !this.shaderPredios) return false;
-    // Só depois do pouso: carregar e compilar os prédios no meio do voo custaria quadros.
-    // Quem já está visível continua (voos dentro da cidade não mexem nos prédios).
-    const podeEntrar = this.presencaPredios > 0 || !this.voando;
-    const alvo = this.perto && this.camadas.predios && !this.fotoAtiva && podeEntrar ? 1 : 0;
-    if (this.presencaPredios === alvo) return false;
-    const passo = MOVIMENTO_REDUZIDO ? 1 : dt / (alvo ? 1.1 : 0.45);
-    this.presencaPredios = limitar(this.presencaPredios + (alvo ? passo : -passo), 0, 1);
-    this.shaderPredios.setUniform("u_presenca", this.presencaPredios);
-    this.predios.show = this.presencaPredios > 0;
-    return true;
   }
 
   /* --------------------------------------------------------------- câmera */
@@ -1378,7 +1347,7 @@ export class GlobeEngine {
 
   private restaurarDetalhe() {
     this.scene.globe.maximumScreenSpaceError = this.sseBase;
-    if (this.predios) this.predios.maximumScreenSpaceError = this.ssePredios;
+    if (this.foto) this.foto.maximumScreenSpaceError = this.sseFoto;
   }
 
   /**
@@ -1470,7 +1439,7 @@ export class GlobeEngine {
     // deixa a banda e a GPU para o destino.
     const folga = e < 0.82 ? meio : 0;
     this.scene.globe.maximumScreenSpaceError = this.sseBase * (1 + 1.5 * folga);
-    if (this.predios) this.predios.maximumScreenSpaceError = this.ssePredios * (1 + 2 * folga);
+    if (this.foto) this.foto.maximumScreenSpaceError = this.sseFoto * (1 + 2.5 * folga);
     if (v.t >= 1) {
       this.voando = null;
       this.restaurarDetalhe();
@@ -1851,7 +1820,7 @@ export class GlobeEngine {
       // prédios ainda estão chegando, ela espera (até 4 s): carregar e girar
       // ao mesmo tempo é o que engasga.
       const o = this.orbita;
-      const carregando = this.predios?.show && !this.predios.tilesLoaded && o.espera < 4;
+      const carregando = this.fotoVisivel && this.foto && !this.foto.tilesLoaded && o.espera < 4;
       if (carregando) o.espera += dt;
       else o.idade += dt;
       o.pose.heading += dt * 2.4 * RAD * suave(o.idade / 2.6);
@@ -1865,7 +1834,6 @@ export class GlobeEngine {
     // Animações de ambiente: não mexem na câmera, mas pedem quadro novo.
     let ambiente = this.animarPaises(dt);
     ambiente = this.animarRota(dt) || ambiente;
-    ambiente = this.animarPredios(dt) || ambiente;
     if (this.horaT < 1) {
       this.horaT = Math.min(1, this.horaT + dt / 1.2);
       const segundos = JulianDate.secondsDifference(this.horaPara, this.horaDe) * suave(this.horaT);
@@ -1979,7 +1947,6 @@ export class GlobeEngine {
     this.desdeAvaliacao = 0;
     if (novo > 0) this.ligarBrilho(false);
     this.aplicarDegrau();
-    if (this.foto?.show && !this.fotoAtiva) this.aplicarVisibilidade3D();
     try {
       // Na próxima visita a máquina já começa no degrau que aguenta.
       localStorage.setItem(CHAVE_QUALIDADE, String(novo));
@@ -1988,14 +1955,14 @@ export class GlobeEngine {
     }
   }
 
-  /** Último recurso, já na menor resolução: desliga os prédios 3D (só no celular). */
+  /** Último recurso, já na menor resolução: desliga as cidades em 3D (só no celular). */
   private aliviar() {
     if (!CELULAR || !this.camadas.predios || !this.perto) return;
     this.camadas = { ...this.camadas, predios: false };
     this.sseBase = 4;
     this.scene.globe.maximumScreenSpaceError = this.sseBase;
     this.eventos.aoReduzirQualidade?.(this.camadas);
-    this.aplicarVisibilidade3D();
+    this.atualizarFoto();
   }
 
   /** Bloom leve, só quando a máquina tem folga de sobra. */
