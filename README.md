@@ -19,7 +19,7 @@ O app funciona sem configuração nenhuma. Sem token ele usa a imagem de satéli
 
 ## Token gratuito do Cesium ion
 
-O token libera a imagem do Bing com rótulos, o relevo (Alpes e Pirineus em 3D) e, com a flag abaixo, as cidades em 3D.
+O token libera a imagem de satélite do Bing, o relevo (Alpes e Pirineus em 3D) e, com a flag abaixo, os locais em 3D. Os nomes no mapa são desenhados pelo próprio app.
 
 1. Crie uma conta gratuita em https://ion.cesium.com/signup.
 2. Vá em **Access Tokens** (https://ion.cesium.com/tokens) e clique em **Create token**.
@@ -44,7 +44,7 @@ O token vai dentro do JavaScript do site, então qualquer pessoa consegue vê-lo
 
 ### Cidades em 3D (fotogrametria do Google)
 
-Nos zooms de cidade e de local o mapa troca a imagem de satélite pelos **Photorealistic 3D Tiles do Google**, servidos pelo Cesium ion: prédios, árvores e monumentos com textura real. Para isso:
+No zoom de local o mapa troca a imagem de satélite pelos **Photorealistic 3D Tiles do Google**, servidos pelo Cesium ion: prédios, árvores e monumentos com textura real. Para isso:
 
 1. Na conta do ion, em **Asset Depot**, adicione "Google Photorealistic 3D Tiles" a **My Assets** (uma vez só).
 2. No `.env`, deixe `VITE_ENABLE_PHOTOREALISTIC=true`.

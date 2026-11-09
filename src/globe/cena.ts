@@ -121,7 +121,7 @@ export interface Marcador {
   id: string;
   lat: number;
   lon: number;
-  tipo: "base" | "parada" | "batevolta" | "travessia" | "lua" | "local" | "ponto";
+  tipo: "base" | "parada" | "batevolta" | "travessia" | "lua" | "local" | "ponto" | "pais";
   nome: string;
   sub?: string;
   numero?: number;
@@ -152,12 +152,42 @@ function marcadoresDeCidades(opcoes: { paisId?: string; alcancadas?: Set<string>
       nome: c.nome,
       sub: doPais ? c.datas.rotulo : undefined,
       numero: c.tipo === "base" ? numeroDaBase(c.id) : undefined,
-      fixa: !foraDoFoco && (doPais || c.tipo === "base" || c.tipo === "parada"),
+      // Bate-voltas ficam colados na base (Sintra em Lisboa): o nome só no hover.
+      fixa: !foraDoFoco && c.tipo !== "bate-volta" && (doPais || c.tipo === "base" || c.tipo === "parada"),
       lado: LADO_ESQUERDO.has(c.id) ? "esq" : "dir",
       rota: { tipo: "cidade", id: c.id },
     });
   }
   return saida;
+}
+
+/** Onde cai o nome de cada país: longe das cidades da rota. */
+const POSICAO_DO_NOME: Record<string, LatLon> = {
+  portugal: [40.9, -7.95],
+  espanha: [38.7, -3.6],
+  franca: [47.1, 1.4],
+  "paises-baixos": [53.05, 6.1],
+  alemanha: [50.5, 9.3],
+  tchequia: [49.35, 15.7],
+  austria: [47.2, 14.4],
+  italia: [42.6, 13.9],
+};
+
+/** Nomes dos países da rota, no lugar dos rótulos da imagem de satélite. */
+function nomesDosPaises(emFoco?: string): Marcador[] {
+  return trip.paises
+    .filter((p) => !p.dentroDe)
+    .map((p) => ({
+      id: `pais:${p.id}`,
+      lat: (POSICAO_DO_NOME[p.id] ?? p.camera.alvo)[0],
+      lon: (POSICAO_DO_NOME[p.id] ?? p.camera.alvo)[1],
+      tipo: "pais" as const,
+      nome: p.nome,
+      fixa: true,
+      ativo: p.id === emFoco,
+      apagado: Boolean(emFoco) && p.id !== emFoco,
+      rota: { tipo: "pais" as const, id: p.id },
+    }));
 }
 
 function luas(): Marcador[] {
@@ -192,7 +222,7 @@ export function marcadoresDaRota(rota: Rota, alcancadas: Set<string> | null): Ma
           rota: { tipo: "local" as const, id: l.id },
         }));
       }
-      return [...marcadoresDeCidades({ paisId: p.id }), ...luas()];
+      return [...nomesDosPaises(p.id), ...marcadoresDeCidades({ paisId: p.id }), ...luas()];
     }
     case "cidade":
       return locaisDaCidade(rota.id).map((l) => ({
@@ -252,6 +282,6 @@ export function marcadoresDaRota(rota: Rota, alcancadas: Set<string> | null): Ma
       return paradas;
     }
     default:
-      return [...marcadoresDeCidades({ alcancadas: alcancadas ?? undefined }), ...(alcancadas ? [] : luas())];
+      return [...nomesDosPaises(), ...marcadoresDeCidades({ alcancadas: alcancadas ?? undefined }), ...(alcancadas ? [] : luas())];
   }
 }

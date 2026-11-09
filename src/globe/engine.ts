@@ -34,6 +34,7 @@ import {
   GeometryInstance,
   GroundPrimitive,
   HeadingPitchRange,
+  CustomShader,
   type ImageryLayer,
   type ImageryProvider,
   IntersectionTests,
@@ -62,7 +63,7 @@ import {
   type TerrainProvider,
   TileMapServiceImageryProvider,
   Transforms,
-  UrlTemplateImageryProvider,
+  UniformType,
   buildModuleUrl,
   Viewer,
 } from "cesium";
@@ -205,14 +206,18 @@ const ROTA_PRINCIPAL = trip.trechos.filter((t) =>
   (["onibus-noturno", "trem-rapido", "trem-noturno"] as Modal[]).includes(t.modal),
 );
 
-/** Degraus de qualidade, do melhor ao mais leve. */
+/**
+ * Degraus de qualidade usados SÓ enquanto a câmera se move: primeiro sai o
+ * MSAA, depois a resolução cai (até 75%). Em repouso é sempre resolução
+ * nativa (até 2x) com MSAA 4x + FXAA no desktop e FXAA no celular.
+ */
 const DEGRAUS = [
-  { msaa: 4, escala: 1 },
-  { msaa: 1, escala: 1 },
-  { msaa: 1, escala: 0.85 },
-  { msaa: 1, escala: 0.72 },
-  { msaa: 1, escala: 0.6 },
-  { msaa: 1, escala: 0.5 },
+  { msaa: 4, fxaa: true, escala: 1 },
+  { msaa: 1, fxaa: true, escala: 1 },
+  { msaa: 1, fxaa: false, escala: 1 },
+  { msaa: 1, fxaa: false, escala: 0.9 },
+  { msaa: 1, fxaa: false, escala: 0.82 },
+  { msaa: 1, fxaa: false, escala: 0.75 },
 ];
 
 const CHAVE_QUALIDADE = "europa2027:qualidade";
@@ -251,7 +256,6 @@ export class GlobeEngine {
 
   // camadas
   private camadaBase?: ImageryLayer;
-  private camadaRotulos?: ImageryLayer;
   private camadaEscura?: ImageryLayer;
   private escuroAlvo = 0.46;
   private relevoIon?: TerrainProvider;
@@ -299,9 +303,14 @@ export class GlobeEngine {
   private animacao: ((dt: number) => void) | null = null;
   private pausado = false;
   private ultimoTick = performance.now();
-  private sseBase = 2;
-  private sseFoto = 16;
-  private fotoVisivel = false;
+  private sseBase = 1.5;
+  private sseFoto = 12;
+  /** 0 = invisível (mas carregando), 1 = inteiro. Entra dissolvendo no pouso. */
+  private presencaFoto = 0;
+  private shaderFoto?: CustomShader;
+  private pousou = false;
+  /** Escala que dá a resolução nativa (até 2x) em repouso. */
+  private escalaRepouso = 1;
 
   // ponteiro
   private ponteiro: { x: number; y: number } | null = null;
@@ -327,6 +336,10 @@ export class GlobeEngine {
   private antesDeDescer = 0;
   private descidaLiberada = 0;
   private modesta = false;
+  private quadrosAmbiente = 0;
+  private ambienteAtivo = false;
+  private ultimoAmbiente = 0;
+  private mediaAmbiente = 10;
 
   /* ------------------------------------------------------------ criação */
 
@@ -352,7 +365,9 @@ export class GlobeEngine {
       scene3DOnly: true,
       requestRenderMode: true,
       maximumRenderTimeChange: Infinity,
-      msaaSamples: modesta ? 1 : 4,
+      // MSAA 4x no desktop (a GPU integrada aguenta em repouso; em movimento a
+      // resolução é que cai). No celular, só FXAA.
+      msaaSamples: CELULAR ? 1 : 4,
       // Linhas e marcadores não precisam de transparência independente de ordem,
       // e ela custa passes de tela cheia.
       orderIndependentTranslucency: false,
@@ -370,7 +385,9 @@ export class GlobeEngine {
     this.scene = viewer.scene;
     this.camera = viewer.camera;
     this.capacidades.token = token;
-    this.degrau = this.degrauMinimo = modesta ? 1 : 0;
+    this.degrauMinimo = 0;
+    // GPU integrada: já começa sem antialiasing em movimento; sobe se sobrar fôlego.
+    this.degrau = modesta ? 2 : 0;
     this.modesta = modesta;
     try {
       const salvo = Number(localStorage.getItem(CHAVE_QUALIDADE));
@@ -382,14 +399,17 @@ export class GlobeEngine {
 
   private async iniciar() {
     const { scene, viewer } = this;
-    // Resolução recomendada pelo navegador (pixels CSS). A escala é ajustada
-    // pelo controle de qualidade, só enquanto a câmera se move.
-    viewer.useBrowserRecommendedResolution = true;
-    viewer.resolutionScale = 1;
+    // Resolução nativa da tela (até 2x): linhas, rótulos e texturas nítidos.
+    // Só enquanto a câmera se move o controle de qualidade reduz a escala.
+    const dpr = window.devicePixelRatio || 1;
+    viewer.useBrowserRecommendedResolution = false;
+    this.escalaRepouso = Math.min(1, 2 / dpr);
+    viewer.resolutionScale = this.escalaRepouso;
 
     scene.globe.baseColor = Color.fromCssColorString("#0a1422");
     scene.backgroundColor = Color.BLACK;
-    this.sseBase = CELULAR ? 3 : 2;
+    // Texturas nítidas em repouso; durante o voo sobe para ~4 (ver avancarVoo).
+    this.sseBase = CELULAR ? 2.2 : 1.5;
     scene.globe.maximumScreenSpaceError = this.sseBase;
     scene.globe.tileCacheSize = CELULAR ? 400 : 1000;
     scene.globe.preloadAncestors = true;
@@ -425,10 +445,10 @@ export class GlobeEngine {
     scene.renderError.addEventListener((_cena: Scene, erro: unknown) => {
       console.error("Erro de renderização; desligando camadas 3D opcionais.", erro);
       if (this.foto) this.foto.show = false;
-      this.fotoVisivel = false;
       this.capacidades.predios = false;
       this.fotoEstado = "falhou";
       scene.globe.show = true;
+      this.presencaFoto = 0;
       viewer.useDefaultRenderLoop = true;
     });
 
@@ -457,14 +477,13 @@ export class GlobeEngine {
   private async montarImagem() {
     const camadas = this.viewer.imageryLayers;
     if (this.camadaBase) camadas.remove(this.camadaBase, true);
-    if (this.camadaRotulos) camadas.remove(this.camadaRotulos, true);
     this.camadaBase = undefined;
-    this.camadaRotulos = undefined;
 
     if (this.capacidades.token) {
       try {
-        // Uma camada só, com os rótulos embutidos. 3 = Bing Aerial with Labels · 2 = Bing Aerial
-        const ion = await IonImageryProvider.fromAssetId(this.camadas.rotulos ? 3 : 2);
+        // Satélite limpo (Bing Aerial, sem rótulos): os nomes são desenhados pelo
+        // app, nítidos e só do que interessa à viagem.
+        const ion = await IonImageryProvider.fromAssetId(2);
         this.camadaBase = camadas.addImageryProvider(ion, 0);
         this.capacidades.imagem = "ion";
       } catch (e) {
@@ -479,16 +498,6 @@ export class GlobeEngine {
         });
         this.camadaBase = camadas.addImageryProvider(esri, 0);
         this.capacidades.imagem = "esri";
-        // Sem token não existe satélite gratuito com rótulos embutidos: eles vêm em uma segunda camada.
-        this.camadaRotulos = camadas.addImageryProvider(
-          new UrlTemplateImageryProvider({
-            url: `${ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`,
-            maximumLevel: 13,
-            credit: "Esri",
-          }),
-          1,
-        );
-        this.camadaRotulos.alpha = 0.72;
       } catch (e) {
         console.warn("ESRI indisponível; usando o Natural Earth embutido.", e);
       }
@@ -498,11 +507,12 @@ export class GlobeEngine {
       this.camadaBase = camadas.addImageryProvider(ne, 0);
       this.capacidades.imagem = "natural-earth";
     }
-    // Leve escurecida: a rota e os painéis ganham contraste.
-    this.camadaBase.brightness = 0.86;
-    this.camadaBase.contrast = 1.12;
-    this.camadaBase.saturation = 0.92;
-    this.aplicarVisibilidade3D();
+    // Viva e cinematográfica: um pouco mais de contraste e saturação, meios-tons levemente abertos.
+    this.camadaBase.brightness = 1.0;
+    this.camadaBase.contrast = 1.1;
+    this.camadaBase.saturation = 1.15;
+    this.camadaBase.gamma = 0.94;
+    this.pedirQuadro();
   }
 
   private async montarRelevo() {
@@ -525,20 +535,40 @@ export class GlobeEngine {
     try {
       const foto = await createGooglePhotorealistic3DTileset();
       if (this.destruido) return;
+      // Entra e sai dissolvendo (pontilhado que se fecha), sem custo de transparência.
+      this.shaderFoto = new CustomShader({
+        uniforms: { u_presenca: { type: UniformType.FLOAT, value: 0 } },
+        fragmentShaderText: `
+          void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+            float ruido = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+            if (ruido >= u_presenca) {
+              discard;
+            }
+          }`,
+      });
+      foto.customShader = this.shaderFoto;
       foto.show = false;
-      // Fotogrametria pesa: GPUs modestas pedem menos detalhe (textura ainda nítida à distância do roteiro).
-      this.sseFoto = CELULAR ? 28 : this.modesta ? 24 : 16;
+      // Detalhe máximo em repouso; em movimento o avancarVoo afrouxa.
+      this.sseFoto = CELULAR ? 20 : this.modesta ? 16 : 12;
       foto.maximumScreenSpaceError = this.sseFoto;
+      // Pula níveis intermediários de detalhe: menos conteúdo baixado e decodificado no voo.
+      foto.skipLevelOfDetail = true;
+      foto.baseScreenSpaceError = 1024;
+      foto.skipScreenSpaceErrorFactor = 16;
+      foto.skipLevels = 1;
       foto.dynamicScreenSpaceError = true;
-      foto.preloadFlightDestinations = true;
-      foto.cullRequestsWhileMoving = true;
+      foto.foveatedScreenSpaceError = true;
+      foto.cacheBytes = CELULAR ? 256 * 1024 * 1024 : 512 * 1024 * 1024;
+      foto.maximumCacheOverflowBytes = 256 * 1024 * 1024;
+      // A órbita lenta conta como movimento: cortar pedidos nela deixaria a periferia borrada.
+      foto.cullRequestsWhileMoving = false;
+      foto.dynamicScreenSpaceErrorDensity = 1.5e-4;
       foto.tileFailed.addEventListener(() => {
         // Cota estourada ou rede ruim: volta para terreno + imagem de satélite.
         if (++this.falhasFoto > 12 && this.fotoEstado === "ok") {
           console.warn("Photorealistic 3D Tiles falhando; voltando para o terreno.");
           this.fotoEstado = "falhou";
           this.capacidades.predios = false;
-          this.atualizarFoto();
         }
       });
       this.foto = this.scene.primitives.add(foto) as Cesium3DTileset;
@@ -555,46 +585,48 @@ export class GlobeEngine {
     return this.cena.nivel === "cidade" || this.cena.nivel === "local";
   }
 
-  /**
-   * Fotogrametria do Google nos níveis Cidade e Local. A troca entre o globo
-   * (imagem de satélite + relevo) e o modelo 3D acontece por altitude, com
-   * histerese, abaixo de ~35 km: nessa altura a diferença entre as duas
-   * imagens quase não se nota, e o 3D já está carregando quando a câmera
-   * pousa. O globo some porque os dois têm o chão no mesmo lugar.
-   */
-  private atualizarFoto() {
-    const quer = this.perto && this.camadas.predios && this.fotoEstado === "ok" && this.foto;
-    const altitude = this.camera.positionCartographic.height;
-    let visivel = this.fotoVisivel;
-    if (!quer) visivel = false;
-    else if (altitude < 32_000) visivel = true;
-    else if (altitude > 48_000) visivel = false;
-    if (visivel === this.fotoVisivel && this.scene.globe.show === !visivel) return;
-    this.fotoVisivel = visivel;
-    if (this.foto) this.foto.show = visivel;
-    this.scene.globe.show = !visivel;
-    this.pedirQuadro();
+  /** Fotogrametria do Google: só no nível Local. */
+  private get querFoto() {
+    return this.cena.nivel === "local" && this.camadas.predios && this.fotoEstado === "ok" && Boolean(this.foto);
   }
 
-  /** Rótulos da Esri conforme o nível (sem token). */
-  private aplicarVisibilidade3D() {
-    // Os rótulos da Esri só vão até o zoom regional: de perto viram borrão.
-    if (this.camadaRotulos) this.camadaRotulos.show = this.camadas.rotulos && !this.perto;
-    this.atualizarFoto();
-    this.pedirQuadro();
+  /**
+   * Fotogrametria: começa a carregar (invisível) assim que o voo para o local
+   * começa; no pouso, dissolve por cima do satélite e então o globo some.
+   * Ao sair do nível Local, o globo volta primeiro e o 3D dissolve para fora.
+   */
+  private animarFoto(dt: number): boolean {
+    const foto = this.foto;
+    const shader = this.shaderFoto;
+    if (!foto || !shader) return false;
+    const quer = this.querFoto;
+    const carregarEscondido = quer && !this.pousou;
+    const alvo = quer && this.pousou ? 1 : 0;
+    const mostrar = quer || this.presencaFoto > 0;
+    if (foto.show !== mostrar) foto.show = mostrar;
+    if (carregarEscondido && this.presencaFoto === 0) {
+      // Visível para o Cesium (pede os tiles), invisível na tela.
+      return false;
+    }
+    if (this.presencaFoto === alvo) return false;
+    const passo = MOVIMENTO_REDUZIDO ? 1 : dt / (alvo ? 0.9 : 0.4);
+    this.presencaFoto = limitar(this.presencaFoto + (alvo ? passo : -passo), 0, 1);
+    shader.setUniform("u_presenca", this.presencaFoto);
+    // O globo fica atrás durante a dissolução e some quando o 3D está inteiro.
+    this.scene.globe.show = this.presencaFoto < 1;
+    return true;
   }
 
   definirCamadas(novas: Camadas) {
     const antes = this.camadas;
     this.camadas = { ...novas };
-    if (novas.rotulos !== antes.rotulos && this.capacidades.imagem === "ion") void this.montarImagem();
     if (novas.relevo !== antes.relevo && this.relevoIon) {
       this.viewer.terrainProvider = novas.relevo ? this.relevoIon : this.elipsoide;
       this.reposicionarLinhas();
     }
     if (novas.luz !== antes.luz) this.aplicarLuz(true);
     if (novas.predios) void this.montarFoto();
-    this.aplicarVisibilidade3D();
+    this.pedirQuadro();
   }
 
   /**
@@ -854,7 +886,8 @@ export class GlobeEngine {
   private aplicarPaises() {
     const { nivel, paisId } = this.cena;
     const perto = this.perto;
-    this.escuroAlvo = perto ? 0 : 0.46;
+    // Esmaece sem apagar: o mapa continua legível em volta da rota.
+    this.escuroAlvo = perto ? 0 : nivel === "pais" ? 0.4 : 0.34;
     for (const [id, d] of this.desenhados) {
       const pais = paisPorId.get(id)!;
       const sobCursor = this.paisSobCursor === id;
@@ -865,11 +898,11 @@ export class GlobeEngine {
         preenchimento = TRANSPARENTE;
         borda = 0;
       } else if (nivel === "pais") {
-        preenchimento = emFoco ? d.cor.withAlpha(0.07) : ESCURO.withAlpha(0.3);
+        preenchimento = emFoco ? d.cor.withAlpha(0.07) : ESCURO.withAlpha(0.16);
         if (sobCursor && !emFoco) preenchimento = d.cor.withAlpha(0.16);
         borda = emFoco ? 1 : 0.22;
       } else {
-        preenchimento = d.cor.withAlpha((pais.status === "atravessado" ? 0.06 : 0.11) + (sobCursor ? 0.14 : 0));
+        preenchimento = d.cor.withAlpha((pais.status === "atravessado" ? 0.07 : 0.13) + (sobCursor ? 0.14 : 0));
       }
       if (sobCursor && !perto) borda = 1;
       Color.clone(preenchimento, d.preenchimentoAlvo);
@@ -1207,23 +1240,16 @@ export class GlobeEngine {
   }
 
   /**
-   * Relevo exagerado de longe (os Alpes aparecem) e real de perto. A passagem
-   * acontece em poucos degraus pequenos conforme a altitude: cada mudança faz
-   * o Cesium percorrer todos os tiles carregados, então uma rampa contínua
-   * travaria o voo, e um salto único seria visível.
+   * Relevo exagerado de longe (os Alpes aparecem) e real de perto. São só
+   * dois estados, trocados uma vez por voo e no alto do arco: cada mudança
+   * faz o Cesium reprocessar todos os tiles carregados, e lá em cima são poucos.
    */
   private ajustarPorAltitude() {
     const altitude = this.camera.positionCartographic.height;
-    // Com relevo, o exagero nunca é exatamente 1: entrar e sair de 1 obriga a
-    // recodificar a malha de todos os tiles.
     let alvo = 1;
     if (this.usaRelevo) {
-      const continuo = 0.8 * suave((altitude - 150_000) / 450_000);
-      const degrau = Math.round(continuo / 0.2) * 0.2;
-      // Só troca quando passou bem do meio do caminho até o próximo degrau.
-      const atual = this.exagero - 1;
-      alvo = 1 + (Math.abs(continuo - atual) > 0.14 ? degrau : Math.round(atual / 0.2) * 0.2);
-      if (alvo < 1.001) alvo = 1.001;
+      const acima = this.exagero > 1.01;
+      alvo = (acima ? altitude > 330_000 : altitude > 470_000) ? 1.8 : 1.001;
     }
     if (alvo !== this.exagero) {
       this.exagero = alvo;
@@ -1234,7 +1260,6 @@ export class GlobeEngine {
     // e os morros esconderem o que está atrás.
     const testar = this.capacidades.relevo && altitude < 60_000;
     if (this.scene.globe.depthTestAgainstTerrain !== testar) this.scene.globe.depthTestAgainstTerrain = testar;
-    this.atualizarFoto();
   }
 
   /* ----------------------------------------------------------------- cena */
@@ -1246,7 +1271,7 @@ export class GlobeEngine {
 
   private aplicarCena() {
     if (this.perto && this.camadas.predios) void this.montarFoto();
-    this.aplicarVisibilidade3D();
+    this.pedirQuadro();
     this.aplicarPaises();
     this.aplicarRota();
     if (this.camadas.luz && this.nivelDaLuz !== this.perto) this.aplicarLuz(false);
@@ -1346,7 +1371,11 @@ export class GlobeEngine {
   }
 
   private restaurarDetalhe() {
-    this.scene.globe.maximumScreenSpaceError = this.sseBase;
+    this.scene.globe.preloadSiblings = true;
+    this.scene.globe.loadingDescendantLimit = 20;
+    // Na órbita (lenta, contínua) um pouco menos de detalhe mantém os 60 fps;
+    // o quadro de repouso sai com o máximo.
+    this.scene.globe.maximumScreenSpaceError = this.orbita ? Math.max(this.sseBase, 2) : this.sseBase;
     if (this.foto) this.foto.maximumScreenSpaceError = this.sseFoto;
   }
 
@@ -1383,12 +1412,16 @@ export class GlobeEngine {
     };
     const de = this.lerPose();
     this.preCarregar(para);
+    this.pedirQuadro();
 
+    this.pousou = false;
     const chegar = () => {
+      this.pousou = true;
       this.pose = para;
       this.poseSuja = false;
       this.posicionar(this.camera, this.centro(para), para.heading, para.pitch, para.range);
       if (opcoes.orbitar && !MOVIMENTO_REDUZIDO) this.orbita = { pose: { ...para }, idade: 0, espera: 0 };
+      this.restaurarDetalhe();
       this.pedirQuadro();
     };
 
@@ -1407,6 +1440,9 @@ export class GlobeEngine {
     const arco = limitar(Math.log(zoom.topo / Math.max(de.range, para.range)) / 1.6, 0, 1);
 
     this.eventos.aoVoar?.(duracao);
+    // Em voo, só os tiles do que está na tela: irmãos e descendentes esperam o pouso.
+    this.scene.globe.preloadSiblings = false;
+    this.scene.globe.loadingDescendantLimit = 6;
     const chegou = await new Promise<boolean>((resolver) => {
       this.voando = { de, para, geo: chao > 1 ? geo : null, zoom, arco, t: 0, duracao, resolver };
       this.pedirQuadro();
@@ -1437,9 +1473,11 @@ export class GlobeEngine {
     this.posicionar(this.camera, Cartesian3.fromDegrees(lon, lat, alt, Ellipsoid.WGS84, this.tmpMundo), heading, pitch, range);
     // No meio do voo o detalhe do chão não é percebido: pedir menos tiles
     // deixa a banda e a GPU para o destino.
+    // Em voo o detalhe do chão não é percebido: pede menos tiles (2,5 nas
+    // pontas, 4 no alto do arco) e deixa a banda e a GPU para o destino.
     const folga = e < 0.82 ? meio : 0;
-    this.scene.globe.maximumScreenSpaceError = this.sseBase * (1 + 1.5 * folga);
-    if (this.foto) this.foto.maximumScreenSpaceError = this.sseFoto * (1 + 2.5 * folga);
+    this.scene.globe.maximumScreenSpaceError = mistura(Math.max(this.sseBase, 2.5), this.modesta ? 5 : 4, folga);
+    if (this.foto) this.foto.maximumScreenSpaceError = this.sseFoto * (1 + 3 * folga);
     if (v.t >= 1) {
       this.voando = null;
       this.restaurarDetalhe();
@@ -1491,6 +1529,7 @@ export class GlobeEngine {
 
   pararOrbita() {
     this.orbita = null;
+    this.restaurarDetalhe();
   }
 
   /* ---------------------------------------------------------------- intro */
@@ -1690,6 +1729,7 @@ export class GlobeEngine {
     const interagiu = () => {
       // A mão do usuário manda: voo e órbita param onde estão.
       this.orbita = null;
+      this.scene.globe.maximumScreenSpaceError = this.sseBase;
       if (this.voando) {
         const v = this.voando;
         this.voando = null;
@@ -1820,7 +1860,7 @@ export class GlobeEngine {
       // prédios ainda estão chegando, ela espera (até 4 s): carregar e girar
       // ao mesmo tempo é o que engasga.
       const o = this.orbita;
-      const carregando = this.fotoVisivel && this.foto && !this.foto.tilesLoaded && o.espera < 4;
+      const carregando = this.querFoto && this.foto && !this.foto.tilesLoaded && o.espera < 4;
       if (carregando) o.espera += dt;
       else o.idade += dt;
       o.pose.heading += dt * 2.4 * RAD * suave(o.idade / 2.6);
@@ -1834,6 +1874,7 @@ export class GlobeEngine {
     // Animações de ambiente: não mexem na câmera, mas pedem quadro novo.
     let ambiente = this.animarPaises(dt);
     ambiente = this.animarRota(dt) || ambiente;
+    ambiente = this.animarFoto(dt) || ambiente;
     if (this.horaT < 1) {
       this.horaT = Math.min(1, this.horaT + dt / 1.2);
       const segundos = JulianDate.secondsDifference(this.horaPara, this.horaDe) * suave(this.horaT);
@@ -1851,31 +1892,44 @@ export class GlobeEngine {
       Cartesian3.clone(cam.directionWC, this.ultimaDirecao);
       movimento = true;
     }
-    this.governar(bruto, movimento || ambiente, agora);
-    if (movimento || ambiente) this.scene.requestRender();
+    if (ambiente) this.ultimoAmbiente = agora;
+    const ambienteAtivo = agora - this.ultimoAmbiente < 600;
+    if (ambienteAtivo !== this.ambienteAtivo) {
+      this.ambienteAtivo = ambienteAtivo;
+      this.aplicarDegrau();
+    }
+    this.governar(bruto, movimento, ambiente && !movimento, agora);
+    if (movimento) this.scene.requestRender();
+    else if (ambiente) {
+      // Só animação de ambiente (luzes, fades): em máquinas que não dão 60 fps
+      // com a cena parada em resolução cheia, ela roda a 30 fps.
+      this.quadrosAmbiente++;
+      if ((!this.modesta && this.mediaAmbiente < 17) || this.quadrosAmbiente % 2 === 0) this.scene.requestRender();
+    }
   }
 
   /**
-   * Controle de qualidade. Enquanto há quadros sendo desenhados (câmera em
-   * movimento ou animação de ambiente), olha os últimos 45 tempos de quadro:
-   * - se até os quadros "bons" (percentil 40) passam de ~19 ms, a GPU não dá
-   *   conta e ele desce um degrau: primeiro o MSAA, depois a resolução;
-   * - travadas isoladas (carregar tiles, montar prédios) não contam: baixar a
-   *   resolução não as resolveria;
-   * - se descer não ajudou, o gargalo não é a GPU: volta ao degrau anterior.
-   * Quando tudo para, um último quadro sai em resolução cheia e com
-   * antialiasing: a imagem em repouso é sempre nítida.
+   * Controle de qualidade. Vale só para quadros em que a CÂMERA se move (voo,
+   * órbita, arrasto): olha os últimos 45 tempos de quadro e, se até os bons
+   * (percentil 40) passam de ~19 ms, reduz a resolução um degrau (no máximo
+   * 75%). Quando a câmera para, a resolução volta à nativa no mesmo quadro.
+   * Animações de ambiente (luzes, fades) nunca mexem na resolução; se elas
+   * pesam, passam a ser desenhadas a 30 fps.
    */
-  private governar(dt: number, ativo: boolean, agora: number) {
-    if (ativo) this.ultimoMovimento = agora;
-    const emMovimento = agora - this.ultimoMovimento < 380;
+  private governar(dt: number, camera: boolean, ambiente: boolean, agora: number) {
+    if (camera) this.ultimoMovimento = agora;
+    const emMovimento = agora - this.ultimoMovimento < 300;
     if (emMovimento !== this.emMovimento) {
       this.emMovimento = emMovimento;
       this.aplicarDegrau();
-      this.ignorar = 10;
+      this.ignorar = 8;
       this.scene.requestRender();
     }
-    if (!ativo || dt > 0.25) return;
+    if (dt > 0.25) return;
+    if (!camera) {
+      if (ambiente) this.mediaAmbiente = this.mediaAmbiente * 0.9 + dt * 1000 * 0.1;
+      return;
+    }
     if (this.ignorar > 0) {
       this.ignorar--;
       return;
@@ -1904,7 +1958,6 @@ export class GlobeEngine {
     if (p40 > 19.5) {
       this.rapidos = 0;
       if (this.degrau < ultimo && agora > this.descidaLiberada) {
-        // Subiu e teve de descer logo em seguida: não tenta subir de novo tão cedo.
         if (agora < this.subidaLiberada + 8000) this.subidaLiberada = agora + 90_000;
         this.antesDeDescer = p40;
         this.trocarDegrau(Math.min(ultimo, this.degrau + (p40 > 36 ? 2 : 1)));
@@ -1927,16 +1980,17 @@ export class GlobeEngine {
     }
   }
 
-  /** Aplica o degrau atual; em repouso, resolução cheia e antialiasing. */
+  /** Em movimento, o degrau atual; em repouso, resolução nativa e MSAA cheio. */
   private aplicarDegrau() {
     const d = DEGRAUS[this.degrau];
-    const { scene, viewer } = this;
-    if (scene.msaaSamples !== d.msaa) scene.msaaSamples = d.msaa;
-    // Sem MSAA, o FXAA entra só no quadro de repouso: em movimento ele custa caro e não se nota.
-    const fxaa = d.msaa === 1 && !this.emMovimento;
-    if (scene.postProcessStages.fxaa.enabled !== fxaa) scene.postProcessStages.fxaa.enabled = fxaa;
-    const escala = this.emMovimento ? d.escala : 1;
-    if (viewer.resolutionScale !== escala) viewer.resolutionScale = escala;
+    const escala = this.escalaRepouso * (this.emMovimento ? d.escala : 1);
+    if (this.viewer.resolutionScale !== escala) this.viewer.resolutionScale = escala;
+    // Quadro parado: MSAA 4x. Numa GPU integrada, enquanto as luzes animam
+    // (vários quadros por segundo em resolução nativa), fica só o FXAA.
+    const msaa = CELULAR ? 1 : this.emMovimento ? d.msaa : this.modesta && this.ambienteAtivo ? 1 : 4;
+    if (this.scene.msaaSamples !== msaa) this.scene.msaaSamples = msaa;
+    const fxaa = this.emMovimento ? d.fxaa : true;
+    if (this.scene.postProcessStages.fxaa.enabled !== fxaa) this.scene.postProcessStages.fxaa.enabled = fxaa;
   }
 
   private trocarDegrau(novo: number) {
@@ -1962,7 +2016,6 @@ export class GlobeEngine {
     this.sseBase = 4;
     this.scene.globe.maximumScreenSpaceError = this.sseBase;
     this.eventos.aoReduzirQualidade?.(this.camadas);
-    this.atualizarFoto();
   }
 
   /** Bloom leve, só quando a máquina tem folga de sobra. */
@@ -2024,7 +2077,9 @@ export class GlobeEngine {
     return {
       degrau: this.degrau,
       escala: this.viewer.resolutionScale,
+      dpr: window.devicePixelRatio,
       msaa: this.scene.msaaSamples,
+      ambienteMs: Math.round(this.mediaAmbiente * 10) / 10,
       brilho: this.brilhoGlobal,
       mediaMs: Math.round(this.media * 10) / 10,
     };

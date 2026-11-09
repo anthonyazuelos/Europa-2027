@@ -108,7 +108,7 @@ function Camadas() {
             role="group"
             aria-label="Camadas do mapa"
           >
-            <Interruptor rotulo="Rótulos" nota="Nomes de cidades e países" ligado={camadas.rotulos} aoMudar={(v) => definir({ ...camadas, rotulos: v })} />
+            <Interruptor rotulo="Rótulos" nota="Nomes dos países da rota e das cidades" ligado={camadas.rotulos} aoMudar={(v) => definir({ ...camadas, rotulos: v })} />
             <Interruptor
               rotulo="Relevo"
               nota={cap?.relevo ? "Alpes e Pirineus em 3D" : "Precisa do token do Cesium ion"}
@@ -118,7 +118,7 @@ function Camadas() {
             />
             <Interruptor
               rotulo="Cidades em 3D"
-              nota={cap?.predios ? "Fotogrametria do Google nos zooms de cidade e de local" : "Precisa do token do Cesium ion com o asset do Google"}
+              nota={cap?.predios ? "Fotogrametria do Google no zoom de local" : "Precisa do token do Cesium ion com o asset do Google"}
               ligado={camadas.predios}
               desativado={!cap?.predios}
               aoMudar={(v) => definir({ ...camadas, predios: v })}

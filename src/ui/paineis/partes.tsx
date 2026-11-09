@@ -33,8 +33,9 @@ export function Cascata({ children, className = "" }: { children: ReactNode; cla
   const lista = {
     visivel: {
       transition: {
-        delayChildren: Math.min(0.9, 0.08 + voo * 0.22),
-        staggerChildren: Math.min(0.12, Math.max(0.04, (voo * 0.6) / n)),
+        // Começa logo depois da decolagem e termina um pouco antes do pouso.
+        delayChildren: Math.min(0.5, 0.06 + voo * 0.1),
+        staggerChildren: Math.min(0.1, Math.max(0.035, (voo * 0.6) / n)),
       },
     },
   };
