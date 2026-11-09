@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#05080f" />
+    <title>Europa 2027 · Lisboa → Roma, por terra</title>
+    <meta
+      name="description"
+      content="Mapa 3D da viagem: 21 dias de Lisboa a Roma por terra, de 15 de janeiro a 4 de fevereiro de 2027."
+    />
+    <meta property="og:title" content="Europa 2027 · Lisboa → Roma, por terra" />
+    <meta property="og:description" content="O roteiro inteiro em um globo 3D: 8 países, 21 dias, dois trens noturnos." />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%2305080f'/%3E%3Ccircle cx='32' cy='32' r='19' fill='none' stroke='%23ffb547' stroke-width='3'/%3E%3Cpath d='M14 38c8-10 16 6 24-6s8-2 12-8' fill='none' stroke='%23ffb547' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..500&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Pintado antes de qualquer JavaScript: a abertura aparece na hora. */
+      html,
+      body,
+      #root {
+        height: 100%;
+        margin: 0;
+        background: #04070d;
+      }
+      .abertura-estatica {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        text-align: center;
+        color: #f5f0e6;
+        background: radial-gradient(120% 90% at 50% 110%, #16223a 0%, #070b14 55%, #04070d 100%);
+        font-family: Fraunces, "Iowan Old Style", Georgia, serif;
+      }
+      .abertura-estatica h1 {
+        margin: 0;
+        font-weight: 400;
+        font-size: clamp(2.6rem, 9vw, 5.5rem);
+        letter-spacing: -0.02em;
+        line-height: 1;
+      }
+      .abertura-estatica .datas {
+        margin-top: 0.75rem;
+        font-family: Fraunces, "Iowan Old Style", Georgia, serif;
+        font-style: italic;
+        font-size: clamp(1.2rem, 3.4vw, 1.9rem);
+        color: #ffb547;
+      }
+      .abertura-estatica p {
+        margin: 1rem 0 0;
+        font-family: Inter, system-ui, sans-serif;
+        font-size: clamp(0.95rem, 2.4vw, 1.15rem);
+        color: #b3bccd;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="abertura-estatica">
+        <div>
+          <h1>Europa 2027</h1>
+          <p class="datas">15 jan → 4 fev</p>
+          <p>Lisboa → Roma, por terra</p>
+        </div>
+      </div>
+    </div>
+    <noscript>Este mapa precisa de JavaScript para funcionar.</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
