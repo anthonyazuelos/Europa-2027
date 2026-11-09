@@ -82,6 +82,9 @@
     scrollbar-width: thin;
     scrollbar-color: rgb(255 255 255 / 0.16) transparent;
   }
+  .font-display {
+    font-family: var(--font-display);
+  }
   .titulo {
     font-family: var(--font-display);
     font-weight: 400;
@@ -454,6 +457,27 @@
 }
 .m-pais[data-apagado="true"] > .nome-pais {
   opacity: 0.4;
+}
+/* Brincadeira das loiras: número grande que cresce sobre o país. */
+.m-blondes {
+  pointer-events: none;
+  z-index: 9;
+}
+.m-blondes > .numero-blondes {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1;
+  color: #ffe9a8;
+  text-shadow:
+    0 0 3px rgb(0 0 0 / 0.95),
+    0 0 14px rgb(0 0 0 / 0.85),
+    0 0 26px rgb(255 211 107 / 0.55);
+  animation: surgir 0.5s var(--ease-saida) both;
+  animation-delay: calc(var(--ordem, 0) * 140ms);
 }
 .m-ponto > .corpo {
   width: 8px;

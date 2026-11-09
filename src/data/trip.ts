@@ -30,7 +30,7 @@ const viagem: Trip["viagem"] = {
     noites: 20,
     paisesVisitados: 8,
     texto:
-      "Dois irmãos, primeira vez na Europa. De Lisboa a Roma sem nenhum voo no meio: ônibus, trens rápidos e dois trens noturnos.",
+      "Começa num voo noturno sobre o Atlântico e termina três semanas depois, na arena do Coliseu. No caminho: um sábado de Carnaval em Veneza, uma noite de Champions no Bernabéu, o TGV passando entre o Mediterrâneo e os Pirineus, e dois trens noturnos em que o dia nasce no vale do Elba e sobre os Alpes. Oito países, nenhum voo no meio, uma cidade de cada vez.",
   },
   camera: { alvo: [45.6, 3.6], heading: 0, pitch: -72, range: 4_200_000 },
   pontos: [

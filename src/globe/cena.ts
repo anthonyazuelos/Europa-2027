@@ -121,7 +121,9 @@ export interface Marcador {
   id: string;
   lat: number;
   lon: number;
-  tipo: "base" | "parada" | "batevolta" | "travessia" | "lua" | "local" | "ponto" | "pais";
+  tipo: "base" | "parada" | "batevolta" | "travessia" | "lua" | "local" | "ponto" | "pais" | "blondes";
+  /** Para marcadores numéricos (brincadeira das loiras). */
+  valor?: number;
   nome: string;
   sub?: string;
   numero?: number;
@@ -172,6 +174,22 @@ const POSICAO_DO_NOME: Record<string, LatLon> = {
   austria: [47.2, 14.4],
   italia: [42.6, 13.9],
 };
+
+/** Percentual de loiras sobre cada país (brincadeira), no lugar do nome. */
+export function marcadoresBlondes(palpites: Record<string, number | null>): Marcador[] {
+  return trip.paises
+    .filter((p) => !p.dentroDe && typeof palpites[p.id] === "number")
+    .map((p, i) => ({
+      id: `blondes:${p.id}`,
+      numero: i,
+      lat: (POSICAO_DO_NOME[p.id] ?? p.camera.alvo)[0],
+      lon: (POSICAO_DO_NOME[p.id] ?? p.camera.alvo)[1],
+      tipo: "blondes" as const,
+      nome: `${p.nome}: ${palpites[p.id]}% de loiras (brincadeira)`,
+      valor: palpites[p.id] as number,
+      rota: { tipo: "pais" as const, id: p.id },
+    }));
+}
 
 /** Nomes dos países da rota, no lugar dos rótulos da imagem de satélite. */
 function nomesDosPaises(emFoco?: string): Marcador[] {

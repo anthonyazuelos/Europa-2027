@@ -38,6 +38,8 @@ interface Estado {
   infoAberta: boolean;
   folha: AlturaFolha;
   aviso: string | null;
+  /** Brincadeira: percentual de loiras sobre o mapa. */
+  blondes: boolean;
 
   trechoSobCursor: { id: string; x: number; y: number } | null;
   paisSobCursor: string | null;
@@ -71,6 +73,7 @@ export const useApp = create<Estado>((set, get) => ({
   infoAberta: false,
   folha: "peek",
   aviso: null,
+  blondes: false,
 
   trechoSobCursor: null,
   paisSobCursor: null,

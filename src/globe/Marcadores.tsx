@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { useRota, navegar } from "../router";
 import { useApp } from "../store";
 import { CATEGORIA } from "../ui/comuns";
-import { type Marcador, marcadoresDaRota } from "./cena";
+import { type Marcador, marcadoresBlondes, marcadoresDaRota } from "./cena";
+import { Contador, PALPITES_BLONDES } from "../ui/Blondes";
 
 /**
  * Marcadores em HTML por cima do globo. O motor informa, a cada quadro
@@ -16,15 +17,21 @@ export function Marcadores() {
   const alcancadas = useApp((s) => s.alcancadas);
   const voo = useApp((s) => s.voo);
   const rotulos = useApp((s) => s.camadas.rotulos);
+  const blondes = useApp((s) => s.blondes);
   const elementos = useRef(new Map<string, HTMLElement>());
   const ultimas = useRef(new Map<string, string>());
 
   const marcadores = useMemo(() => {
     if (fase === "carregando") return [];
-    const lista = marcadoresDaRota(rota, fase === "intro" ? alcancadas : null);
+    let lista = marcadoresDaRota(rota, fase === "intro" ? alcancadas : null);
     // Interruptor "Rótulos": sem ele, ficam só os marcadores, com o nome no hover.
-    return rotulos ? lista : lista.filter((m) => m.tipo !== "pais").map((m) => ({ ...m, fixa: false }));
-  }, [rota, fase, alcancadas, rotulos]);
+    if (!rotulos) lista = lista.filter((m) => m.tipo !== "pais").map((m) => ({ ...m, fixa: false }));
+    // Brincadeira ligada: o número toma o lugar do nome do país.
+    if (blondes && fase === "pronto" && (rota.tipo === "europa" || rota.tipo === "pais")) {
+      lista = [...lista.filter((m) => m.tipo !== "pais"), ...marcadoresBlondes(PALPITES_BLONDES)];
+    }
+    return lista;
+  }, [rota, fase, alcancadas, rotulos, blondes]);
 
   useEffect(() => {
     if (!motor) return;
@@ -80,7 +87,7 @@ function Ponto({ m, ordem, registrar }: { m: Marcador; ordem: number; registrar:
       ref={registrar}
       type="button"
       className={`marcador m-${m.tipo}`}
-      style={{ visibility: "hidden", ["--ordem" as string]: ordem }}
+      style={{ visibility: "hidden", ["--ordem" as string]: m.tipo === "blondes" ? (m.numero ?? 0) : ordem }}
       data-ativo={m.ativo || undefined}
       data-apagado={m.apagado || undefined}
       data-categoria={m.categoria}
@@ -89,6 +96,10 @@ function Ponto({ m, ordem, registrar }: { m: Marcador; ordem: number; registrar:
     >
       {m.tipo === "pais" ? (
         <span className="nome-pais">{m.nome}</span>
+      ) : m.tipo === "blondes" ? (
+        <span className="numero-blondes">
+          <Contador alvo={m.valor ?? 0} ordem={m.numero ?? 0} />
+        </span>
       ) : (
         <>
       <span className="corpo" aria-hidden={m.tipo === "base" || m.numero ? undefined : true}>
