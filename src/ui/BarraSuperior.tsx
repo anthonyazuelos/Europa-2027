@@ -5,6 +5,7 @@ import { trip } from "../data";
 import { useCelular } from "../hooks";
 import { caminho, href, migalhas, navegar, rotaPai, useRota } from "../router";
 import { useApp } from "../store";
+import { BotaoBlondes, NotaBlondes } from "./Blondes";
 
 function Migalhas() {
   const rota = useRota();
@@ -166,8 +167,11 @@ export function BarraSuperior() {
       transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.1 }}
       className="pointer-events-none absolute inset-x-3 top-3 z-30 flex flex-col-reverse gap-2 md:left-[452px] md:right-4 md:top-4 md:flex-row md:items-start md:justify-between"
     >
-      <div className="pointer-events-auto flex min-w-0 self-start max-md:max-w-full">
-        <Migalhas />
+      <div className="pointer-events-none flex min-w-0 flex-col self-start max-md:max-w-full">
+        <div className="pointer-events-auto self-start">
+          <Migalhas />
+        </div>
+        <NotaBlondes />
       </div>
 
       <div className="flex shrink-0 items-center justify-between gap-2">
@@ -182,6 +186,7 @@ export function BarraSuperior() {
         <button type="button" className="botao-icone" aria-label="Buscar (Ctrl ou ⌘ + K)" onClick={() => useApp.setState({ buscaAberta: true })}>
           <Search size={18} aria-hidden />
         </button>
+        <BotaoBlondes />
         <a href={href({ tipo: "reservas" })} className="botao-icone relative" aria-label={`Reservas: ${pendentes} por fazer`} aria-current={rota.tipo === "reservas" ? "page" : undefined}>
           <ListChecks size={18} aria-hidden />
           {pendentes > 0 && <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-ambar ring-2 ring-noite-900" aria-hidden />}

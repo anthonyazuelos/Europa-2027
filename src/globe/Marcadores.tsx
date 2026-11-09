@@ -4,7 +4,7 @@ import { useRota, navegar } from "../router";
 import { useApp } from "../store";
 import { CATEGORIA } from "../ui/comuns";
 import { type Marcador, marcadoresBlondes, marcadoresDaRota } from "./cena";
-import { Contador, PALPITES_BLONDES } from "../ui/Blondes";
+import { Contador, INDICE_BLONDES } from "../ui/Blondes";
 
 /**
  * Marcadores em HTML por cima do globo. O motor informa, a cada quadro
@@ -26,9 +26,9 @@ export function Marcadores() {
     let lista = marcadoresDaRota(rota, fase === "intro" ? alcancadas : null);
     // Interruptor "Rótulos": sem ele, ficam só os marcadores, com o nome no hover.
     if (!rotulos) lista = lista.filter((m) => m.tipo !== "pais").map((m) => ({ ...m, fixa: false }));
-    // Brincadeira ligada: o número toma o lugar do nome do país.
+    // Índice de loiras ligado: o número toma o lugar do nome do país.
     if (blondes && fase === "pronto" && (rota.tipo === "europa" || rota.tipo === "pais")) {
-      lista = [...lista.filter((m) => m.tipo !== "pais"), ...marcadoresBlondes(PALPITES_BLONDES)];
+      lista = [...lista.filter((m) => m.tipo !== "pais"), ...marcadoresBlondes(INDICE_BLONDES)];
     }
     return lista;
   }, [rota, fase, alcancadas, rotulos, blondes]);
@@ -99,6 +99,7 @@ function Ponto({ m, ordem, registrar }: { m: Marcador; ordem: number; registrar:
       ) : m.tipo === "blondes" ? (
         <span className="numero-blondes">
           <Contador alvo={m.valor ?? 0} ordem={m.numero ?? 0} />
+          <small>{m.faixa}</small>
         </span>
       ) : (
         <>

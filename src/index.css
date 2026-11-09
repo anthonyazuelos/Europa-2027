@@ -458,7 +458,7 @@
 .m-pais[data-apagado="true"] > .nome-pais {
   opacity: 0.4;
 }
-/* Brincadeira das loiras: número grande que cresce sobre o país. */
+/* Índice de loiras: número grande que cresce sobre o país, com a faixa embaixo. */
 .m-blondes {
   pointer-events: none;
   z-index: 9;
@@ -478,6 +478,16 @@
     0 0 26px rgb(255 211 107 / 0.55);
   animation: surgir 0.5s var(--ease-saida) both;
   animation-delay: calc(var(--ordem, 0) * 140ms);
+  text-align: center;
+}
+.m-blondes > .numero-blondes > small {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgb(255 244 224 / 0.8);
 }
 .m-ponto > .corpo {
   width: 8px;

@@ -122,8 +122,9 @@ export interface Marcador {
   lat: number;
   lon: number;
   tipo: "base" | "parada" | "batevolta" | "travessia" | "lua" | "local" | "ponto" | "pais" | "blondes";
-  /** Para marcadores numéricos (brincadeira das loiras). */
+  /** Para marcadores numéricos (índice de loiras). */
   valor?: number;
+  faixa?: string;
   nome: string;
   sub?: string;
   numero?: number;
@@ -175,18 +176,28 @@ const POSICAO_DO_NOME: Record<string, LatLon> = {
   italia: [42.6, 13.9],
 };
 
-/** Percentual de loiras sobre cada país (brincadeira), no lugar do nome. */
-export function marcadoresBlondes(palpites: Record<string, number | null>): Marcador[] {
+/** Índice de loiras sobre cada país, no lugar do nome. */
+/** Países pequenos: o número sai um pouco do lugar do nome para não cobrir cidades. */
+const DESVIO_BLONDES: Record<string, LatLon> = {
+  portugal: [-0.6, -0.1],
+  "paises-baixos": [0.35, 0.9],
+  tchequia: [-0.4, 0.2],
+  austria: [-0.25, -1.1],
+  italia: [-1.2, 1.6],
+};
+
+export function marcadoresBlondes(indice: Record<string, { valor: number; faixa: string }>): Marcador[] {
   return trip.paises
-    .filter((p) => !p.dentroDe && typeof palpites[p.id] === "number")
+    .filter((p) => !p.dentroDe && indice[p.id])
     .map((p, i) => ({
       id: `blondes:${p.id}`,
       numero: i,
-      lat: (POSICAO_DO_NOME[p.id] ?? p.camera.alvo)[0],
-      lon: (POSICAO_DO_NOME[p.id] ?? p.camera.alvo)[1],
+      lat: (POSICAO_DO_NOME[p.id] ?? p.camera.alvo)[0] + (DESVIO_BLONDES[p.id]?.[0] ?? 0),
+      lon: (POSICAO_DO_NOME[p.id] ?? p.camera.alvo)[1] + (DESVIO_BLONDES[p.id]?.[1] ?? 0),
       tipo: "blondes" as const,
-      nome: `${p.nome}: ${palpites[p.id]}% de loiras (brincadeira)`,
-      valor: palpites[p.id] as number,
+      nome: `${p.nome}: ${indice[p.id].faixa} de cabelo loiro`,
+      valor: indice[p.id].valor,
+      faixa: indice[p.id].faixa,
       rota: { tipo: "pais" as const, id: p.id },
     }));
 }

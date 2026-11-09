@@ -38,7 +38,7 @@ interface Estado {
   infoAberta: boolean;
   folha: AlturaFolha;
   aviso: string | null;
-  /** Brincadeira: percentual de loiras sobre o mapa. */
+  /** Índice de loiras sobre o mapa. */
   blondes: boolean;
 
   trechoSobCursor: { id: string; x: number; y: number } | null;

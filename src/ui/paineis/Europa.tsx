@@ -2,7 +2,6 @@ import { ChevronRight, ListChecks, Moon, TrainFront, Trophy, VenetianMask } from
 import { useMemo } from "react";
 import { bases, dataCurta, diaPorData, trechoPorId, trip } from "../../data";
 import { useApp } from "../../store";
-import { BotaoBlondes } from "../Blondes";
 import { Bandeira, Ir, Secao } from "../comuns";
 import { Cascata, Degrau } from "./partes";
 
@@ -184,7 +183,6 @@ export function PainelEuropa() {
           </span>
           <ChevronRight size={16} className="text-bruma" aria-hidden />
         </Ir>
-        <BotaoBlondes />
       </Secao>
     </div>
   );
