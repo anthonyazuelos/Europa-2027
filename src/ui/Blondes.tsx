@@ -61,13 +61,13 @@ export function BotaoBlondes() {
   return (
     <button
       type="button"
-      className="botao-icone text-[19px] leading-none"
+      className="botao-icone !w-auto px-3 text-[13px] font-medium tracking-wide"
       aria-label="Índice de loiras por país"
       aria-pressed={ativo}
       title="Índice de loiras por país"
       onClick={() => useApp.setState({ blondes: !ativo })}
     >
-      <span aria-hidden>👱‍♀️</span>
+      blondes
     </button>
   );
 }
